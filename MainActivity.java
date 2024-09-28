@@ -1,212 +1,215 @@
-package unco.edu.gpstrackingdemo1;
+package unco.edu.pathfinders;
 
-import android.content.pm.PackageManager;
-import android.location.Location;
-import android.os.Build;
 import android.os.Bundle;
-import android.view.View;
-import android.widget.Switch;
-import android.widget.TextView;
+import android.util.Log;
+import android.widget.SearchView;
 import android.widget.Toast;
 
-import androidx.activity.EdgeToEdge;
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 
-import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationRequest;
-import com.google.android.gms.location.LocationResult;
-import com.google.android.gms.location.LocationServices;
-import com.google.android.gms.tasks.OnSuccessListener;
-import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.PolylineOptions;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.model.LatLngBounds;
+import com.google.maps.android.PolyUtil;
 
-public class MainActivity extends AppCompatActivity {
-    public static final int DEFAULT_UPDATE_INTERVAL = 30;
-    public static final int FAST_UPDATE_INTERVAL = 5;
-    public static final int PERMISSIONS_FINE_LOCATION = 99;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-    //references to the UI elements
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 
-    boolean updateOn = false;
-    TextView tv_lat, tv_lon, tv_altitude, tv_accuracy, tv_speed, tv_sensor, tv_updates, tv_address;
+public class MainActivity extends AppCompatActivity implements OnMapReadyCallback {
 
-
-    Switch sw_locationupdates, sw_gps;
-
-    //Location request is a config file for all settings related to FusedLocationProviderClient
-    LocationRequest locationRequest;
-
-    LocationCallback locationCallBack;
-
-    //Google's API for location services. The majority of the app functions use this class.
-    FusedLocationProviderClient fusedLocationProviderClient;
+    private GoogleMap mMap;
+    private LatLng location1;
+    private LatLng location2;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
-        /*ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
-            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
-            return insets;
-        });
 
-         */
-        tv_lat = findViewById(R.id.tv_lat);
-        tv_lon = findViewById(R.id.tv_lon);
-        tv_altitude = findViewById(R.id.tv_altitude);
-        tv_accuracy = findViewById(R.id.tv_accuracy);
-        tv_speed = findViewById(R.id.tv_speed);
-        tv_sensor = findViewById(R.id.tv_sensor);
-        tv_updates = findViewById(R.id.tv_updates);
-        tv_address = findViewById(R.id.tv_address);
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.map_fragment);
+        mapFragment.getMapAsync(this);
 
-        sw_gps = findViewById(R.id.sw_gps);
-        sw_locationupdates = findViewById(R.id.sw_locationsupdates);
+        // SearchView for entering two locations
+        SearchView searchView = findViewById(R.id.search_view);
+        searchView.setQueryHint("Enter two locations separated by a comma");
 
-
-
-        locationCallBack = new LocationCallback() {
-
+        // Handle search query submission
+        searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
             @Override
-            public void onLocationResult(@NonNull LocationResult locationResult) {
-                super.onLocationResult(locationResult);
-                // save the location
-                updateUIValues(locationResult.getLastLocation());
+            public boolean onQueryTextSubmit(String query) {
+                String[] locations = query.split(",");
+                if (locations.length == 2) {
+                    String location1Str = locations[0].trim();
+                    String location2Str = locations[1].trim();
+
+                    // Geocode both locations
+                    geocodeLocation(location1Str, 1);
+                    geocodeLocation(location2Str, 2);
+                } else {
+                    Toast.makeText(MainActivity.this, "Please enter two locations separated by a comma.", Toast.LENGTH_LONG).show();
+                }
+                return false;
             }
-        };
 
-
-        locationRequest = new LocationRequest();
-        //How often does the default location check occur
-        locationRequest.setInterval(1000 * DEFAULT_UPDATE_INTERVAL);
-
-        //How often does the location check occur when set to most frequent update
-        locationRequest.setFastestInterval(1000 * FAST_UPDATE_INTERVAL);
-
-        locationRequest.setPriority(LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY);
-
-        sw_gps.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onClick(View v) {
-                if (sw_gps.isChecked()) {
-                    //most accurate - use GPS
-                    locationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
-                    tv_sensor.setText("Using GPS sensors");
-                }
-                else {
-                    locationRequest.setPriority(LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY);
-                    tv_sensor.setText("Using Towers + WiFi");
-                }
+            public boolean onQueryTextChange(String newText) {
+                return false;
             }
         });
 
-        sw_locationupdates.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                if (sw_locationupdates.isChecked()) {
-                    // turn on location tracking
-                    startLocationUpdates();
-                }
-                else {
-                    //turn off location tracking
-                    stopLocationUpdates();
-                }
+        // Zoom In and Zoom Out Buttons
+        findViewById(R.id.btn_zoom_in).setOnClickListener(v -> {
+            if (mMap != null) {
+                mMap.animateCamera(CameraUpdateFactory.zoomIn());
             }
         });
 
-
-
-        updateGPS();
-    } //end onCreate method
-
-    private void stopLocationUpdates() {
-        tv_updates.setText("Location is NOT being tracked.");
-        tv_lat.setText("Not Tracking Location.");
-        tv_lon.setText("Not Tracking Location.");
-        tv_speed.setText("Not Tracking Location.");
-        tv_address.setText("Not Tracking Location.");
-        tv_accuracy.setText("Not Tracking Location.");
-        tv_altitude.setText("Not Tracking Location.");
-        tv_sensor.setText("Not Tracking Location.");
-        fusedLocationProviderClient.removeLocationUpdates(locationCallBack);
-    }
-
-    private void startLocationUpdates() {
-        tv_updates.setText("Location is being tracked.");
-        fusedLocationProviderClient.requestLocationUpdates(locationRequest,locationCallBack,null);
-        updateGPS();
-
+        findViewById(R.id.btn_zoom_out).setOnClickListener(v -> {
+            if (mMap != null) {
+                mMap.animateCamera(CameraUpdateFactory.zoomOut());
+            }
+        });
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
-        switch (requestCode) {
-            case PERMISSIONS_FINE_LOCATION:
-            if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                updateGPS();
-            }
-            else {
-                Toast.makeText(this, "Please grant your permissions", Toast.LENGTH_SHORT).show();
-                finish();
-            }
-            break;
-        }
+    public void onMapReady(GoogleMap googleMap) {
+        mMap = googleMap;
     }
 
-    private void updateGPS() {
-        //get permissions from user to track GPS
-        //get current location from FusedLocationProviderClient
-        //Update the UI
+    // Geocode the entered location to get LatLng
+    private void geocodeLocation(String location, int locationIndex) {
+        try {
+            // URL encode the location string
+            String encodedLocation = URLEncoder.encode(location, StandardCharsets.UTF_8.toString());
+            String urlString = "https://maps.googleapis.com/maps/api/geocode/json?address=" + encodedLocation + "&key=AIzaSyBZmGdCsZeGTn42o8lpbGlPk2a1_ukycr0";
 
-        fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(MainActivity.this);
+            // Log the request URL for debugging
+            Log.d("GeocodeRequest", "Request URL: " + urlString);
 
-        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            //User has given permission
-            fusedLocationProviderClient.getLastLocation().addOnSuccessListener(this, new OnSuccessListener<Location>() {
-                @Override
-                public void onSuccess(Location location) {
-                    //we got permissions. Put the values of location
-                    updateUIValues(location);
+            new Thread(() -> {
+                try {
+                    URL url = new URL(urlString);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("GET");
+
+                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = in.readLine()) != null) {
+                        response.append(line);
+                    }
+                    in.close();
+
+                    // Log the raw API response for debugging
+                    Log.d("GeocodeResponse", response.toString());
+
+                    JSONObject jsonObject = new JSONObject(response.toString());
+                    JSONArray results = jsonObject.getJSONArray("results");
+
+                    if (results.length() > 0) {
+                        JSONObject locationObject = results.getJSONObject(0).getJSONObject("geometry").getJSONObject("location");
+                        LatLng latLng = new LatLng(locationObject.getDouble("lat"), locationObject.getDouble("lng"));
+
+                        runOnUiThread(() -> {
+                            if (locationIndex == 1) {
+                                location1 = latLng;
+                            } else {
+                                location2 = latLng;
+                            }
+
+                            // If both locations are available, plot the route
+                            if (location1 != null && location2 != null) {
+                                plotRoute(location1, location2);
+                            }
+                        });
+                    } else {
+                        runOnUiThread(() -> Toast.makeText(MainActivity.this, "Address not found!", Toast.LENGTH_SHORT).show());
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
                 }
-            });
+            }).start();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-        else {
-            //User has NOT given permission
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                requestPermissions(new String[] {android.Manifest.permission.ACCESS_FINE_LOCATION}, PERMISSIONS_FINE_LOCATION);
+    }
+
+
+    // Function to plot the route between two locations
+    private void plotRoute(LatLng origin, LatLng destination) {
+        String urlString = "https://maps.googleapis.com/maps/api/directions/json?origin=" +
+                origin.latitude + "," + origin.longitude + "&destination=" +
+                destination.latitude + "," + destination.longitude + "&key=YOUR_API_KEY";
+
+        new Thread(() -> {
+            try {
+                URL url = new URL(urlString);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+
+                BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                StringBuilder response = new StringBuilder();
+                String line;
+                while ((line = in.readLine()) != null) {
+                    response.append(line);
+                }
+                in.close();
+
+                // Parse the API response
+                JSONObject jsonObject = new JSONObject(response.toString());
+                String status = jsonObject.getString("status");
+
+                // Check if the API found a route
+                if (status.equals("OK")) {
+                    JSONArray routes = jsonObject.getJSONArray("routes");
+                    JSONObject route = routes.getJSONObject(0);
+                    JSONObject overviewPolyline = route.getJSONObject("overview_polyline");
+                    String encodedPolyline = overviewPolyline.getString("points");
+
+                    runOnUiThread(() -> drawPolyline(encodedPolyline));
+                } else {
+                    // Handle no route found or other errors
+                    runOnUiThread(() -> {
+                        Toast.makeText(MainActivity.this, "No route found or error: " + status, Toast.LENGTH_LONG).show();
+                    });
+                    Log.e("DirectionsAPI", "Error: " + status);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
-        }
-
-    }
-
-    private void updateUIValues(Location location) {
-        //Updates all of the textview objects with a new location
-        tv_lat.setText(String.valueOf(location.getLatitude()));
-        tv_lon.setText(String.valueOf(location.getLongitude()));
-        tv_accuracy.setText(String.valueOf(location.getAccuracy()));
-
-        if (location.hasAltitude()) {
-            tv_altitude.setText(String.valueOf(location.getAltitude()));
-        }
-        else {
-            tv_altitude.setText("Not Available");
-        }
-
-        if (location.hasSpeed()) {
-            tv_speed.setText(String.valueOf(location.getSpeed()));
-        }
-        else {
-            tv_speed.setText("Not Available");
-        }
+        }).start();
     }
 
 
+    // Decode polyline and draw it on the map
+    private void drawPolyline(String encodedPolyline) {
+        List<LatLng> decodedPath = PolyUtil.decode(encodedPolyline);
+        PolylineOptions polylineOptions = new PolylineOptions().color(0xFF0000FF).width(8);
+        for (LatLng latLng : decodedPath) {
+            polylineOptions.add(latLng);
+        }
+        mMap.addPolyline(polylineOptions);
+
+        // Automatically adjust the zoom and camera to show the entire route
+        LatLngBounds bounds = LatLngBounds.builder()
+                .include(location1)  // Include the first location
+                .include(location2)  // Include the second location
+                .build();
+
+        // Animate the camera to fit both locations and the route on the map
+        mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100));  // Padding of 100
+    }
 }
