@@ -1,17 +1,13 @@
-package unco.edu.gpstrackingdemo1;
+package unco.edu.pathfinders;
 
 import android.os.Bundle;
-
-import androidx.activity.EdgeToEdge;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
-import android.location.Location;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
 
+import androidx.appcompat.app.AppCompatActivity;
+
 import java.util.List;
+import android.location.Location;
 
 public class ShowSavedLocationsList extends AppCompatActivity {
 
@@ -20,21 +16,16 @@ public class ShowSavedLocationsList extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
-        setContentView(R.layout.activity_show_saved_locations_list);
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
-            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
-            return insets;
-        });
+        setContentView(R.layout.activity_show_saved_locations_list); // Linking to the correct layout
 
         lv_savedLocations = findViewById(R.id.lv_wayPoints);
 
-
-        MyApplication myApplication = (MyApplication)getApplicationContext();
+        // Fetch saved locations from global application state
+        MyApplication myApplication = (MyApplication) getApplicationContext();
         List<Location> savedLocations = myApplication.getMyLocations();
 
-        lv_savedLocations.setAdapter(new ArrayAdapter<Location>(this, android.R.layout.simple_list_item_1, savedLocations));
-
+        // Set the adapter to display saved locations
+        ArrayAdapter<Location> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, savedLocations);
+        lv_savedLocations.setAdapter(adapter);
     }
 }
